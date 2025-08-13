@@ -4,7 +4,15 @@ from sqlalchemy import create_engine, text
 from typing import Optional, List
 
 # In-memory registry to store intermediate dataframes by handle
-REG = {}
+_DF_REGISTRY = globals().get("_DF_REGISTRY", {})
+
+def registry_put(df: pd.DataFrame, tag: str) -> str:
+    key = f"{tag}_{len(_DF_REGISTRY)+1}"
+    _DF_REGISTRY[key] = df
+    return key
+
+def registry_get(handle: str) -> pd.DataFrame:
+    return _DF_REGISTRY[handle]
 
 def _put(df, tag):
     h = f"df://{tag}-{len(REG)}"; REG[h] = df; return h

@@ -1,43 +1,60 @@
-mel <<EOF
 limits:
   max_input_bytes: 1073741824
+
 source:
   kind: csv
   csv:
     paths:
-      sales: ./etl_agent/data/sales data-set.csv
-      features: ./etl_agent/data/Features data set.csv
-      stores: ./etl_agent/data/stores data-set.csv
+      sales: ./etl_agent/data/sales_dataset.csv
+      features: ./etl_agent/data/Features_dataset.csv
+      stores: ./etl_agent/data/stores_dataset.csv
+
 transform:
   sql: |
-    WITH cleaned AS (
+    WITH joined AS (
       SELECT
-        Store::INT AS Store,
-        Dept::INT  AS Dept,
-        DATE_TRUNC('week', Date) AS week,
-        COALESCE(Weekly_Sales, 0.0) AS Weekly_Sales,
-        CAST(IsHoliday AS BOOLEAN) AS IsHoliday,
-        CAST(NULLIF(Temperature, '') AS DOUBLE) AS Temperature,
-        CAST(NULLIF(Fuel_Price, '') AS DOUBLE) AS Fuel_Price,
-        CAST(NULLIF(CPI, '') AS DOUBLE) AS CPI,
-        CAST(NULLIF(Unemployment, '') AS DOUBLE) AS Unemployment,
-        Type,
-        CAST(Size AS BIGINT) AS Store_Size
-      FROM input_df
-    ), agg AS (
-      SELECT
-        Store, Dept, week,
-        SUM(Weekly_Sales) AS weekly_sales,
-        AVG(Weekly_Sales) AS avg_weekly_sales
-      FROM cleaned
-      GROUP BY Store, Dept, week
+        CAST(s.Store AS INT)   AS Store,
+        CAST(s.Dept  AS INT)   AS Dept,
+        DATE_TRUNC('week', CAST(s.Date AS TIMESTAMP)) AS week,
+        COALESCE(CAST(s.Weekly_Sales AS DOUBLE), 0.0) AS Weekly_Sales,
+        CAST(s.IsHoliday AS BOOLEAN) AS IsHoliday,
+        CAST(f.Temperature AS DOUBLE)  AS Temperature,
+        CAST(f.Fuel_Price  AS DOUBLE)  AS Fuel_Price,
+        CAST(f.CPI         AS DOUBLE)  AS CPI,
+        CAST(f.Unemployment AS DOUBLE) AS Unemployment,
+        sc.Type,
+        CAST(sc.Size AS BIGINT) AS Store_Size
+      FROM sales s
+      LEFT JOIN features f
+        ON CAST(s.Store AS INT)=CAST(f.Store AS INT)
+       AND CAST(s.Date  AS TIMESTAMP)=CAST(f.Date  AS TIMESTAMP)
+      LEFT JOIN stores sc
+        ON CAST(s.Store AS INT)=CAST(sc.Store AS INT)
     )
-    SELECT * FROM agg;
+    SELECT
+      Store, Dept, week,
+      SUM(Weekly_Sales) AS weekly_sales,
+      AVG(Weekly_Sales) AS avg_weekly_sales,
+      SUM(CASE WHEN IsHoliday THEN Weekly_Sales ELSE 0 END) AS holiday_sales,
+      AVG(Temperature)  AS avg_temp,
+      AVG(Fuel_Price)   AS avg_fuel,
+      AVG(CPI)          AS avg_cpi,
+      AVG(Unemployment) AS avg_unemployment,
+      Type,
+      Store_Size
+    FROM joined
+    GROUP BY Store, Dept, week, Type, Store_Size
+    ORDER BY Store, Dept, week;
+
 load:
   to: csv
   file_path: ./etl_agent_output.csv
   include_header: true
+
 checks:
   min_rows: 10
   nonnull_cols: [Store, Dept, week, weekly_sales]
-EOF
+
+verify:
+  min_rows: 10
+  nonnull_cols: [Store, Dept, week, weekly_sales]

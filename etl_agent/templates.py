@@ -34,7 +34,33 @@ def run_from_plan(yml: str):
     limits = plan.get('limits', {})
     max_bytes = limits.get('max_input_bytes', 1_000_000_000)
     if kind == 'csv':
-        h = load_csv(path=src['csv']['path'])
+        csvspec = src.get('csv', {})
+        if 'paths' in csvspec:
+            p = csvspec['paths']
+            required = {'sales','features','stores'}
+            if not required.issubset(p.keys()):
+                raise ValueError("csv.paths must include keys: sales, features, stores")
+            limits = plan.get('limits', {})
+            max_bytes = limits.get('max_input_bytes', 1_000_000_000)
+            total = sum(os.path.getsize(p[k]) for k in ('sales','features','stores'))
+            if total > max_bytes:
+                raise ValueError(f"input too large: {total} bytes > {max_bytes}")
+            # Load each file separately; keep handles and dataframes
+            h_sales   = load_csv(path=p['sales'],   max_bytes=max_bytes)
+            h_features= load_csv(path=p['features'],max_bytes=max_bytes)
+            h_stores  = load_csv(path=p['stores'],  max_bytes=max_bytes)
+
+            df_sales    = registry_get(h_sales)
+            df_features = registry_get(h_features)
+            df_stores   = registry_get(h_stores)
+            con = duckdb.connect()
+            con.register("sales", df_sales)
+            con.register("features", df_features)
+            con.register("stores", df_stores)
+        elif 'path' in csvspec:
+            h = load_csv(path=csvspec['path'], max_bytes=max_bytes)
+        else:
+            raise ValueError("CSV source requires either csv.path or csv.paths{sales,features,stores}")
     elif kind == 'json':
         jp = src.get('json', {})
         h = load_json(path=jp['path'], json_path=jp.get('json_path', ''))
@@ -46,7 +72,30 @@ def run_from_plan(yml: str):
         h = fetch_api(url=ap['url'], params=ap.get('params', {}), json_path=ap.get('json_path',''))
 
     # 2) Transform
-    h2 = transform_sql(sql=plan['transform']['sql'], handle=h)
+    # h2 = transform_sql(sql=plan['transform']['sql'], handle=h)
+    tr = plan.get('transform', {})
+    steps = tr.get('steps')
+    final_handle = None
+    last_name = None
+
+    if steps:
+        for i, st in enumerate(steps):
+            name = st['name']             # required
+            sql  = st['sql']              # required
+            out_df = con.execute(sql).df()
+            # make this step available to later steps as a table
+            con.register(name, out_df)
+            # also store it in the registry for DQ/load
+            final_handle = registry_put(out_df, name)
+            last_name = name
+    else:
+        # Backward-compat: single SQL using sales/features/stores
+        sql = tr.get('sql')
+        if not sql:
+            raise ValueError("Provide transform.steps[...].sql (preferred) or transform.sql.")
+        out_df = con.execute(sql).df()
+        final_handle = registry_put(out_df, "transform")
+        last_name = "transform"
 
     # 3) DQ
     cks = plan.get('checks', {})

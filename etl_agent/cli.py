@@ -1,23 +1,27 @@
-import sys, argparse, json
-from etl_agent.runtime import run_prompt
+#!/usr/bin/env python3
+import sys, argparse, json, os
 from pathlib import Path
-from dotenv import load_dotenv; load_dotenv()
+from dotenv import load_dotenv
+from etl_agent.runtime import run_prompt
 
-# load .env from repo root no matter where you run the command
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+# load .env from repo root
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 def main():
-    parser = argparse.ArgumentParser(description="Mel ETL Agent — run prompt from terminal")
-    parser.add_argument("-p", "--prompt", help="ETL prompt text. If omitted, read from stdin.")
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser(description="ETL Agent — run prompt from terminal")
+    ap.add_argument("-p", "--prompt", help="Prompt text OR path to a file containing the prompt.")
+    args = ap.parse_args()
 
-    prompt = args.prompt if args.prompt else sys.stdin.read()
-    if not prompt or not prompt.strip():
+    if args.prompt and Path(args.prompt).is_file():
+        prompt = Path(args.prompt).read_text()
+    else:
+        prompt = args.prompt if args.prompt else sys.stdin.read()
+
+    if not prompt.strip():
         print("No prompt provided. Use --prompt or pipe text via stdin.", file=sys.stderr)
-        raise SystemExit(2)
+        sys.exit(2)
 
     result = run_prompt(prompt)
-    # pretty JSON for CLI users
     try:
         print(json.dumps(result, indent=2))
     except Exception:
