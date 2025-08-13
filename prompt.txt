@@ -1,0 +1,43 @@
+mel <<EOF
+limits:
+  max_input_bytes: 1073741824
+source:
+  kind: csv
+  csv:
+    paths:
+      sales: ./etl_agent/data/sales data-set.csv
+      features: ./etl_agent/data/Features data set.csv
+      stores: ./etl_agent/data/stores data-set.csv
+transform:
+  sql: |
+    WITH cleaned AS (
+      SELECT
+        Store::INT AS Store,
+        Dept::INT  AS Dept,
+        DATE_TRUNC('week', Date) AS week,
+        COALESCE(Weekly_Sales, 0.0) AS Weekly_Sales,
+        CAST(IsHoliday AS BOOLEAN) AS IsHoliday,
+        CAST(NULLIF(Temperature, '') AS DOUBLE) AS Temperature,
+        CAST(NULLIF(Fuel_Price, '') AS DOUBLE) AS Fuel_Price,
+        CAST(NULLIF(CPI, '') AS DOUBLE) AS CPI,
+        CAST(NULLIF(Unemployment, '') AS DOUBLE) AS Unemployment,
+        Type,
+        CAST(Size AS BIGINT) AS Store_Size
+      FROM input_df
+    ), agg AS (
+      SELECT
+        Store, Dept, week,
+        SUM(Weekly_Sales) AS weekly_sales,
+        AVG(Weekly_Sales) AS avg_weekly_sales
+      FROM cleaned
+      GROUP BY Store, Dept, week
+    )
+    SELECT * FROM agg;
+load:
+  to: csv
+  file_path: ./etl_agent_output.csv
+  include_header: true
+checks:
+  min_rows: 10
+  nonnull_cols: [Store, Dept, week, weekly_sales]
+EOF

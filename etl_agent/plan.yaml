@@ -1,0 +1,50 @@
+source:
+  # kind can be explicit OR 'auto' to let Mel infer the correct tool
+  kind: api|csv|json|db|auto
+  api:
+    url: "https://api.bestbuy.com/v1/products(salePrice<500)"
+    params:
+      apiKey: "$BESTBUY_API_KEY"
+      format: "json"
+      show: "sku,name,salePrice"
+    json_path: "data['products']"   # how to extract rows
+  csv:
+    path: "/data/input/products.csv"
+  json:
+    path: "/data/input/products.json"
+    json_path: "$.records"           # optional jsonpath
+  db:                                 # any SQLAlchemy‑compatible source (Postgres/MySQL/MSSQL, etc.)
+    conn_str: "$SRC_DB_URL"          # e.g., postgresql+psycopg2://user:pwd@host:5432/db
+    query: |
+      SELECT sku, name, price AS salePrice, updated_at AS itemUpdateDate
+      FROM upstream.products
+  limits:
+  max_input_bytes: 1073741824  # 1 GiB
+
+transform:
+  sql: |
+    SELECT CAST(sku AS BIGINT) AS sku,
+           name,
+           CAST(salePrice AS DOUBLE) AS sale_price
+    FROM input_df
+
+load:
+  to: postgres|csv                 # choose sink
+  # if to=postgres
+  conn_str: "postgresql+psycopg2://user:pwd@host:5432/retail"
+  table: "analytics.cheap_products"
+  mode: append  # append|replace|upsert
+  # if to=csv
+  file_path: "/tmp/out.csv"
+  include_header: true
+
+checks:
+  min_rows: 10
+  nonnull_cols: ["sku","name","sale_price"]
+  freshness_minutes: 180
+
+schedule:
+  cron: "0 * * * *"  # optional; managed by Operator
+alerts:
+  on_fail: slack://#data-alerts
+  on_dq_fail: slack://#data-alerts
