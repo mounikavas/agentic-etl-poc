@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
 import sys, argparse, json, os
 from pathlib import Path
 from dotenv import load_dotenv
 from etl_agent.runtime import run_prompt
 
-# load .env from repo root
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 def main():
@@ -12,10 +10,18 @@ def main():
     ap.add_argument("-p", "--prompt", help="Prompt text OR path to a file containing the prompt.")
     args = ap.parse_args()
 
-    if args.prompt and Path(args.prompt).is_file():
-        prompt = Path(args.prompt).read_text()
+    if args.prompt:
+        raw = args.prompt
+        if "\n" in raw:
+            prompt = raw                      # inline text → use as-is
+        else:
+            try:
+                p = Path(raw)
+                prompt = p.read_text() if (p.exists() and p.is_file()) else raw
+            except OSError:
+                prompt = raw
     else:
-        prompt = args.prompt if args.prompt else sys.stdin.read()
+        prompt = sys.stdin.read()
 
     if not prompt.strip():
         print("No prompt provided. Use --prompt or pipe text via stdin.", file=sys.stderr)

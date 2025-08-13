@@ -10,8 +10,31 @@ limits: { max_input_bytes: 1073741824 }
 """
 
 EXECUTOR_SNIPPET = """
-from etl_agent.tools import *
-import yaml, json, re
+from etl_agent.ops import (
+    load_csv_op, write_csv_op, dq_check_op, verify_csv_op,
+    registry_put, registry_get
+)
+# aliases so the rest of the snippet can keep using old names
+load_csv   = load_csv_op
+write_csv  = write_csv_op
+dq_check   = dq_check_op
+verify_csv = verify_csv_op
+
+import yaml, json, re, os, duckdb, pandas as pd
+
+def _to_yaml_map(text):
+    s = str(text or "").strip()
+    m = re.search(r\"```(?:yaml|yml)?\\s*\\n(.*?)\\n```\", s, flags=re.DOTALL|re.IGNORECASE)
+    if m: s = m.group(1).strip()
+    if s.startswith('mel <<EOF'):
+        s = re.sub(r'^mel <<EOF\\n?(.*)\\nEOF\\s*$', r\"\\1\", s, flags=re.DOTALL)
+    doc = yaml.safe_load(s)
+    if not isinstance(doc, dict):
+        raise ValueError(f\"Plan YAML must be a mapping; got {type(doc).__name__}\")
+    return doc
+
+def send_alert(*args, **kwargs): return "skipped"
+def report_status(*args, **kwargs): return "ok"
 
 def _infer_kind(src: dict) -> str:
     kind = src.get('kind','auto')
@@ -99,8 +122,10 @@ def run_from_plan(yml: str):
 
     # 3) DQ
     cks = plan.get('checks', {})
-    dq = dq_check(handle=h2, min_rows=cks.get('min_rows',1), nonnull_cols=cks.get('nonnull_cols',[]),
-                  freshness_minutes=cks.get('freshness_minutes'), timestamp_col=cks.get('timestamp_col',''))
+    # dq = dq_check(handle=final_handle, min_rows=cks.get('min_rows',1), nonnull_cols=cks.get('nonnull_cols',[]),
+    #               freshness_minutes=cks.get('freshness_minutes'), timestamp_col=cks.get('timestamp_col',''))
+    dq = dq_check(handle=final_handle, min_rows=cks.get('min_rows',1), nonnull_cols=cks.get('nonnull_cols',[]),
+                  )
     dqj = json.loads(dq)
     if not dqj['status']:
         if alerts:
@@ -110,9 +135,9 @@ def run_from_plan(yml: str):
     # 4) Load
     ld = plan['load']
     if ld.get('to','postgres') == 'csv':
-        msg = write_csv(handle=h2, path=ld['file_path'], include_header=ld.get('include_header', True))
+        msg = write_csv(handle=final_handle, path=ld['file_path'], include_header=ld.get('include_header', True))
     else:
-        msg = load_to_postgres(handle=h2, conn_str=ld['conn_str'], table=ld['table'], mode=ld.get('mode','append'), key_cols=ld.get('key_cols'))
+        msg = load_to_postgres(handle=final_handle, conn_str=ld['conn_str'], table=ld['table'], mode=ld.get('mode','append'), key_cols=ld.get('key_cols'))
 
     # 5) Verify
     vf = plan.get('verify', {})

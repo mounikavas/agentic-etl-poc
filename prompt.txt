@@ -11,25 +11,56 @@ source:
 
 transform:
   sql: |
-    WITH joined AS (
+transform:
+  sql: |
+    WITH
+    parsed_sales AS (
       SELECT
-        CAST(s.Store AS INT)   AS Store,
-        CAST(s.Dept  AS INT)   AS Dept,
-        DATE_TRUNC('week', CAST(s.Date AS TIMESTAMP)) AS week,
-        COALESCE(CAST(s.Weekly_Sales AS DOUBLE), 0.0) AS Weekly_Sales,
-        CAST(s.IsHoliday AS BOOLEAN) AS IsHoliday,
-        CAST(f.Temperature AS DOUBLE)  AS Temperature,
-        CAST(f.Fuel_Price  AS DOUBLE)  AS Fuel_Price,
-        CAST(f.CPI         AS DOUBLE)  AS CPI,
-        CAST(f.Unemployment AS DOUBLE) AS Unemployment,
+        CAST(Store AS INT) AS Store,
+        CAST(Dept  AS INT) AS Dept,
+        COALESCE(CAST(Weekly_Sales AS DOUBLE), 0.0) AS Weekly_Sales,
+        CAST(IsHoliday AS BOOLEAN) AS IsHoliday,
+        /* parse Date in multiple formats, fall back if needed */
+        CAST(
+          COALESCE(
+            try_strptime(CAST(Date AS VARCHAR), '%m/%d/%Y'),
+            try_strptime(CAST(Date AS VARCHAR), '%Y-%m-%d')
+          )
+          AS DATE
+        ) AS d
+      FROM sales
+    ),
+    parsed_features AS (
+      SELECT
+        CAST(Store AS INT) AS Store,
+        CAST(
+          COALESCE(
+            try_strptime(CAST(Date AS VARCHAR), '%m/%d/%Y'),
+            try_strptime(CAST(Date AS VARCHAR), '%Y-%m-%d')
+          )
+          AS DATE
+        ) AS d,
+        CAST(Temperature AS DOUBLE)  AS Temperature,
+        CAST(Fuel_Price  AS DOUBLE)  AS Fuel_Price,
+        CAST(CPI         AS DOUBLE)  AS CPI,
+        CAST(Unemployment AS DOUBLE) AS Unemployment
+      FROM features
+    ),
+    joined AS (
+      SELECT
+        s.Store,
+        s.Dept,
+        DATE_TRUNC('week', s.d) AS week,
+        s.Weekly_Sales,
+        s.IsHoliday,
+        f.Temperature, f.Fuel_Price, f.CPI, f.Unemployment,
         sc.Type,
         CAST(sc.Size AS BIGINT) AS Store_Size
-      FROM sales s
-      LEFT JOIN features f
-        ON CAST(s.Store AS INT)=CAST(f.Store AS INT)
-       AND CAST(s.Date  AS TIMESTAMP)=CAST(f.Date  AS TIMESTAMP)
+      FROM parsed_sales s
+      LEFT JOIN parsed_features f
+        ON s.Store = f.Store AND s.d = f.d
       LEFT JOIN stores sc
-        ON CAST(s.Store AS INT)=CAST(sc.Store AS INT)
+        ON s.Store = CAST(sc.Store AS INT)
     )
     SELECT
       Store, Dept, week,
