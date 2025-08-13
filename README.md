@@ -23,6 +23,8 @@ etl_agent -p "$(< prompt.txt)"
 # suppress greeting
 etl_agent --no-greet < prompt.txt
 
+![ETL flow overview](./docs/images/ETL_flow.png "ETL flow overview")
+
 ![ETL agent output with prompt without null checks overview](./docs/images/screenshot_1.png "ETL agent output without null checks")
 
 ![ETL agent output with prompt with verification of non empty output overview](./docs/images/screenshot_2.png "ETL agent output with prompt with verification of non empty output")
