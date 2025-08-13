@@ -10,3 +10,12 @@ Turn natural-language prompts into ETL runs: extract (csv/api/db), transform (SQ
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
+## Verify
+which etl_agent
+etl_agent --help
+
+# simplest way to run your saved prompt
+etl_agent < prompt.txt
+
+# or with -p flag
+etl_agent -p "$(< prompt.txt)"

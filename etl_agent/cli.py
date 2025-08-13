@@ -1,5 +1,10 @@
 import sys, argparse, json
 from etl_agent.runtime import run_prompt
+from pathlib import Path
+from dotenv import load_dotenv; load_dotenv()
+
+# load .env from repo root no matter where you run the command
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
 def main():
     parser = argparse.ArgumentParser(description="Mel ETL Agent — run prompt from terminal")

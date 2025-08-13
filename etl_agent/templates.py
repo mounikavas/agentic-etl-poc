@@ -10,7 +10,6 @@ limits: { max_input_bytes: 1073741824 }
 """
 
 EXECUTOR_SNIPPET = """
-from agents import Agent, Session
 from etl_agent.tools import *
 import yaml, json, re
 
@@ -66,18 +65,33 @@ def run_from_plan(yml: str):
     else:
         msg = load_to_postgres(handle=h2, conn_str=ld['conn_str'], table=ld['table'], mode=ld.get('mode','append'), key_cols=ld.get('key_cols'))
 
-    # 5) Verify (skip lag check for pure file sinks)
+    # 5) Verify
     vf = plan.get('verify', {})
-    result = {"status":"ok", "dq": dqj, "message": msg}
-    if ld.get('to','postgres') != 'csv':
-        ver = verify_table(conn_str=ld['conn_str'], table=ld['table'], ts_col=vf.get('ts_col',''), max_lag_minutes=vf.get('max_lag_minutes',180))
-        vj = json.loads(ver)
-        if not vj['status']:
-            if alerts:
-                send_alert(channel=alerts.get('on_fail',''), message=f"Verify failed: {ver}")
-            return {"status":"failed", "verify": vj}
-        result["verify"] = vj
+    result = {"status": "ok", "dq": dqj, "message": msg}
 
+    if ld.get('to', 'postgres') == 'csv':
+        ver = verify_csv(
+            path=ld['file_path'],
+            min_rows=vf.get('min_rows', cks.get('min_rows', 1)),
+            nonnull_cols=vf.get('nonnull_cols', cks.get('nonnull_cols', [])),
+            timestamp_col=vf.get('ts_col', ''),
+            max_lag_minutes=vf.get('max_lag_minutes', 180),
+        )
+    else:
+        ver = verify_table(
+            conn_str=ld['conn_str'],
+            table=ld['table'],
+            ts_col=vf.get('ts_col', ''),
+            max_lag_minutes=vf.get('max_lag_minutes', 180),
+        )
+
+    vj = json.loads(ver)
+    if not vj.get('status', False):
+        if alerts:
+            send_alert(channel=alerts.get('on_fail', ''), message=f"Verify failed: {ver}")
+        return {"status": "failed", "verify": vj}
+
+    result["verify"] = vj
     report_status(step='load', detail=msg)
     return result
 """
